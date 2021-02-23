@@ -63,11 +63,11 @@ class DataStorePerfActivity : AppCompatActivity() {
 @ExperimentalTime
 fun TestRunnerScreen() {
     val padding = 16.dp
+    val context = AmbientContext.current
 
     val selectedFactory = remember { mutableStateOf(testFactories.first()) }
     val testResults = remember { mutableStateOf(emptyList<Report>()) }
     val running = remember { mutableStateOf(false) }
-    val context = AmbientContext.current
     val scope = rememberCoroutineScope()
     val error = remember { mutableStateOf<Throwable?>(null) }
 
@@ -199,7 +199,7 @@ class SharedPreferenceTest(private val sp: SharedPreferences) : PerfTest {
             is TestValue.IntValue -> editor.putInt(value.key, value.value)
             is TestValue.StringValue -> editor.putString(value.key, value.value)
         }
-        check(editor.commit()) { "sp did write successfully $value" }
+        check(editor.commit()) { "sp failed to write $value" }
     }
 
     override suspend fun doRead(value: TestValue) = when (value) {
