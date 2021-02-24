@@ -8,22 +8,23 @@ import android.view.View
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.Spinner
+import androidx.activity.compose.setContent
 import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ExperimentalAnimationApi
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.preferredSize
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.material.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.AmbientContext
-import androidx.compose.ui.platform.setContent
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
@@ -57,18 +58,30 @@ class DataStorePerfActivity : AppCompatActivity() {
     }
 }
 
+
+val dataIterationOptions = listOf(100, 500, 1000, 2000)
+
 @ExperimentalAnimationApi
 @Preview
 @Composable
 @ExperimentalTime
 fun TestRunnerScreen() {
     val padding = 16.dp
-    val context = AmbientContext.current
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
 
-    val selectedFactory = remember { mutableStateOf(testFactories.first()) }
+    //  This doesn't work. Maybe related to AndroidView usage.
+    //  val (selectedFactory, onFactorySelected) = remember {
+    //      mutableStateOf(testFactories.first())
+    //  }
+    val selectedFactory = remember {
+        mutableStateOf(testFactories.first())
+    }
+    val (selectedDataIterations, onDataIterationsSelected) = remember {
+        mutableStateOf(dataIterationOptions[0])
+    }
     val testResults = remember { mutableStateOf(emptyList<Report>()) }
     val running = remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
     val error = remember { mutableStateOf<Throwable?>(null) }
 
     Column(
@@ -96,11 +109,33 @@ fun TestRunnerScreen() {
             }
         })
         Spacer(Modifier.preferredSize(padding))
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceEvenly
+        ) {
+            dataIterationOptions.forEach {
+                Column(
+                    Modifier.selectable(
+                        selected = (it == selectedDataIterations),
+                        onClick = { onDataIterationsSelected(it) }
+                    ),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    RadioButton(
+                        modifier = Modifier.clearAndSetSemantics { },
+                        selected = (it == selectedDataIterations),
+                        onClick = { onDataIterationsSelected(it) }
+                    )
+                    Text(text = it.toString())
+                }
+            }
+        }
+        Spacer(Modifier.preferredSize(padding))
         Button(onClick = {
             scope.launch {
                 running.value = true
                 val result = try {
-                    runTest(context, selectedFactory.value, dataIterations = 100)
+                    runTest(context, selectedFactory.value, selectedDataIterations)
                 } catch (e: Throwable) {
                     e.printStackTrace()
                     error.value = e
@@ -124,23 +159,27 @@ fun TestRunnerScreen() {
 @ExperimentalTime
 @Composable
 fun ReportDisplay(testResults: List<Report>) {
-    Text(fontFamily = FontFamily.Monospace, text = table {
-        cellStyle { paddingLeft = 1; paddingRight = 1 }
-        row {
-            cell("name")
-            cell("init")
-            cell("write")
-            cell("read")
-        }
-        testResults.forEach {
+    Text(
+        fontFamily = FontFamily.Monospace, fontSize = 14.sp, text = table {
+            cellStyle { paddingLeft = 1; paddingRight = 1 }
             row {
-                cell(it.name)
-                cell(it.initFile)
-                cell(it.writeDataTime)
-                cell(it.readDataTime)
+                cell("name")
+                cell("iter")
+                cell("init")
+                cell("write")
+                cell("read")
             }
-        }
-    }.toString())
+            testResults.forEach {
+                row {
+                    cell(it.name)
+                    cell(it.iter)
+                    cell(it.initFile)
+                    cell(it.writeDataTime)
+                    cell(it.readDataTime)
+                }
+            }
+        }.toString()
+    )
 }
 
 // endregion
@@ -209,9 +248,11 @@ open class SharedPreferencesTest(private val sp: SharedPreferences) : PerfTest {
         check(editor.commit()) { "sp failed to write $value" }
     }
 
-    override suspend fun doRead(value: TestValue) = when (value) {
-        is TestValue.IntValue -> sp.getInt(value.key, 0)
-        is TestValue.StringValue -> sp.getString(value.key, "")
+    override suspend fun doRead(value: TestValue): Any? {
+        return when (value) {
+            is TestValue.IntValue -> sp.getInt(value.key, 0)
+            is TestValue.StringValue -> sp.getString(value.key, "")
+        }
     }
 
     override suspend fun cleanUp() = withContext(Dispatchers.IO) {
@@ -399,6 +440,7 @@ class DataStoreReadOptimized2Test(dataStore: DataStore<Preferences>) :
 @ExperimentalTime
 data class Report(
     val name: String,
+    val iter: Int,
     val initFile: Duration,
     val writeDataTime: Duration,
     val readDataTime: Duration,
@@ -442,7 +484,7 @@ suspend fun runTest(
     if (test is CoroutineScope) {
         test.cancel()
     }
-    return Report(factory.name, initTook, writeTook, readTook)
+    return Report(factory.name, dataIterations, initTook, writeTook, readTook)
 }
 
 // endregion
