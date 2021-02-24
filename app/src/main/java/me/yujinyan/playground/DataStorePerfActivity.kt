@@ -248,6 +248,10 @@ open class SharedPreferencesTest(private val sp: SharedPreferences) : PerfTest {
         check(editor.commit()) { "sp failed to write $value" }
     }
 
+    /**
+     * [SharedPreferences] only reads from memory on first iteration.
+     * So no need to use [Dispatchers.IO]
+     */
     override suspend fun doRead(value: TestValue): Any? {
         return when (value) {
             is TestValue.IntValue -> sp.getInt(value.key, 0)
@@ -380,11 +384,13 @@ class DataStoreReadOptimizedStateFlowTest(dataStore: DataStore<Preferences>) :
         }
     }
 
-    override val coroutineContext: CoroutineContext = Dispatchers.IO + Job()
+    private val scopeJob = Job()
+
+    override val coroutineContext: CoroutineContext = Dispatchers.IO + scopeJob
 
     private val deferredPref = async {
-        val scopeJob = this@DataStoreReadOptimizedStateFlowTest.coroutineContext[Job]
-        dataStore.data.stateIn(this + Job(scopeJob)) // note: must `stateIn` a separate `Job`
+        // note: must `stateIn` a separate `Job`
+        dataStore.data.stateIn(this + Job(parent = scopeJob))
     }
 
     private suspend fun pref(): StateFlow<Preferences> = deferredPref.await()
