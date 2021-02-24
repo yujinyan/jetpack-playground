@@ -41,7 +41,7 @@ import kotlin.time.ExperimentalTime
 import kotlin.time.TimeSource
 import kotlin.time.measureTime
 
-// region Android-related code
+// region Android code
 class DataStorePerfActivity : AppCompatActivity() {
     @ExperimentalAnimationApi
     @ExperimentalTime
@@ -93,7 +93,6 @@ fun TestRunnerScreen() {
 
                     override fun onNothingSelected(parent: AdapterView<*>?) {}
                 }
-
             }
         })
         Spacer(Modifier.preferredSize(padding))
@@ -125,10 +124,14 @@ fun TestRunnerScreen() {
 @ExperimentalTime
 @Composable
 fun ReportDisplay(testResults: List<Report>) {
-    val testResultHeaders = listOf("name", "init", "write", "read")
     Text(fontFamily = FontFamily.Monospace, text = table {
         cellStyle { paddingLeft = 1; paddingRight = 1 }
-        row { testResultHeaders.forEach { cell(it) } }
+        row {
+            cell("name")
+            cell("init")
+            cell("write")
+            cell("read")
+        }
         testResults.forEach {
             row {
                 cell(it.name)
@@ -145,7 +148,8 @@ fun ReportDisplay(testResults: List<Report>) {
 
 // region DataStore tests code
 val testFactories = listOf(
-    SharedPreferenceTest,
+    SharedPreferencesTest,
+    SharedPreferencesSyncTest,
     DataStoreTest,
     DataStoreReadOptimizedSharedFlowTest,
     DataStoreReadOptimizedStateFlowTest,
@@ -181,15 +185,18 @@ interface BeforeRead {
     fun beforeRead(values: Iterable<TestValue>)
 }
 
+/**
+ * Baseline [SharedPreferencesTest] test
+ */
 @SuppressLint("ApplySharedPref")
-class SharedPreferenceTest(private val sp: SharedPreferences) : PerfTest {
+open class SharedPreferencesTest(private val sp: SharedPreferences) : PerfTest {
 
     companion object : PerfTestFactory {
         override val name: String = "SP"
 
-        override suspend fun make(context: Context): SharedPreferenceTest {
+        override suspend fun make(context: Context): SharedPreferencesTest {
             val sp = context.getSharedPreferences("test", Context.MODE_PRIVATE)
-            return SharedPreferenceTest(sp)
+            return SharedPreferencesTest(sp)
         }
     }
 
@@ -213,6 +220,39 @@ class SharedPreferenceTest(private val sp: SharedPreferences) : PerfTest {
     }
 }
 
+/**
+ * Add [Synchronized] to read / write [SharedPreferences].
+ *
+ * [DataStore] provides atomic read-write cycle. Check if extra synchronization on [SharedPreferences]
+ * makes it perform like [DataStore].
+ *
+ * Test result: not significant.
+ */
+class SharedPreferencesSyncTest(sp: SharedPreferences) : SharedPreferencesTest(sp) {
+    companion object : PerfTestFactory {
+        override val name: String = "SP-Sync"
+
+        override suspend fun make(context: Context): SharedPreferencesSyncTest {
+            val sp = context.getSharedPreferences("test", Context.MODE_PRIVATE)
+            return SharedPreferencesSyncTest(sp)
+        }
+    }
+
+    @Synchronized
+    override suspend fun doRead(value: TestValue): Any? = super.doRead(value)
+
+    @Synchronized
+    override suspend fun write(value: TestValue) = super.write(value)
+}
+
+
+/**
+ * Baseline [DataStore] test.
+ *
+ * Performs about an order of magnitude slower than [SharedPreferencesTest].
+ *
+ * Probably due to repeated [Flow] collection overhead.
+ */
 open class DataStoreTest(private val dataStore: DataStore<Preferences>) : PerfTest {
     companion object : PerfTestFactory {
         override val name: String = "DataStore"
@@ -233,8 +273,8 @@ open class DataStoreTest(private val dataStore: DataStore<Preferences>) : PerfTe
     /**
      * Uses [Flow.first] to read pref.
      *
-     * This should be the recommended general approach to read current data from DataStore
-     * despite being the slowest in this perf test.
+     * This should be the recommended general approach to reading current data from DataStore
+     * despite being the slowest among these tests.
      */
     override suspend fun doRead(value: TestValue): Any? {
         val p = dataStore.data.first()
@@ -251,7 +291,7 @@ open class DataStoreTest(private val dataStore: DataStore<Preferences>) : PerfTe
 }
 
 /**
- * Uses [SharedFlow], perf similar to [SharedPreferenceTest]
+ * Uses [SharedFlow], perf similar to [SharedPreferencesTest]
  *
  * In practice, we would recommend using the [DataStoreReadOptimizedStateFlowTest] approach.
  */
@@ -283,7 +323,7 @@ class DataStoreReadOptimizedSharedFlowTest(dataStore: DataStore<Preferences>) :
 
 
 /**
- * Uses [StateFlow], perf similar to [SharedPreferenceTest]
+ * Uses [StateFlow], perf similar to [SharedPreferencesTest]
  *
  * A coroutine is started in the background and caches latest state of [Preferences].
  *
@@ -301,21 +341,21 @@ class DataStoreReadOptimizedStateFlowTest(dataStore: DataStore<Preferences>) :
 
     override val coroutineContext: CoroutineContext = Dispatchers.IO + Job()
 
-    private val state = async {
-        dataStore.data.stateIn(this + Job()) // note: must `stateIn` a separate `Job`
+    private val deferredPref = async {
+        val scopeJob = this@DataStoreReadOptimizedStateFlowTest.coroutineContext[Job]
+        dataStore.data.stateIn(this + Job(scopeJob)) // note: must `stateIn` a separate `Job`
     }
 
-    private suspend fun state(): StateFlow<Preferences> = state.await()
+    private suspend fun pref(): StateFlow<Preferences> = deferredPref.await()
 
     override suspend fun doRead(value: TestValue): Any? {
-        val p = state().value
+        val p = pref().value
 
         return when (value) {
             is TestValue.IntValue -> p[intPreferencesKey(value.key)]
             is TestValue.StringValue -> p[stringPreferencesKey(value.key)]
         }
     }
-
 }
 
 /**
