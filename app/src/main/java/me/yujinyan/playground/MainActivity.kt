@@ -7,7 +7,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.preferredSize
+import androidx.compose.foundation.layout.size
 import androidx.compose.material.MaterialTheme
 import androidx.compose.material.Surface
 import androidx.compose.material.Text
@@ -56,12 +56,12 @@ fun MainScreen() {
         Modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Spacer(Modifier.preferredSize(padding))
+        Spacer(Modifier.size(padding))
         destinations.forEach {
             TextButton(onClick = {
                 context.startActivity(Intent(context, it.activity))
             }) { Text(text = it.title.toUpperCase(Locale.ROOT)) }
-            Spacer(Modifier.preferredSize(padding))
+            Spacer(Modifier.size(padding))
         }
     }
 }

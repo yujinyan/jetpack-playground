@@ -2,14 +2,16 @@ package me.yujinyan.playground
 
 import android.content.Context
 import android.content.SharedPreferences
-import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.clickable
+import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.*
+import androidx.compose.material.Button
+import androidx.compose.material.RadioButton
+import androidx.compose.material.Text
+import androidx.compose.material.TextField
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -24,7 +26,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
-import androidx.datastore.preferences.createDataStore
+import androidx.datastore.preferences.preferencesDataStore
 import com.jakewharton.picnic.table
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
@@ -36,11 +38,13 @@ import kotlin.time.ExperimentalTime
 import kotlin.time.measureTime
 
 @ExperimentalTime
+val Context.ds by preferencesDataStore(DataAtomicityActivity.FILE_NAME)
+
+@ExperimentalTime
 class DataAtomicityActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val sp = getSharedPreferences(FILE_NAME, Context.MODE_PRIVATE)
-        val ds = createDataStore(FILE_NAME)
         val options = listOf(TestTarget.SP(sp), TestTarget.DS(ds))
 
         setContent {
@@ -69,24 +73,30 @@ class DataAtomicityActivity : AppCompatActivity() {
             }
 
             Column(
-                Modifier.fillMaxWidth().padding(padding),
+                Modifier
+                    .fillMaxWidth()
+                    .padding(padding),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 options.forEach {
                     Row(
-                        Modifier.fillMaxWidth().selectable(
-                            selected = (it == selectedOption),
-                            onClick = { setSelectedOption(it) }
-                        ),
+                        Modifier
+                            .fillMaxWidth()
+                            .selectable(
+                                selected = (it == selectedOption),
+                                onClick = { setSelectedOption(it) }
+                            ),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         RadioButton(
-                            modifier = Modifier.clearAndSetSemantics { }.padding(end = padding),
+                            modifier = Modifier
+                                .clearAndSetSemantics { }
+                                .padding(end = padding),
                             selected = (it == selectedOption),
                             onClick = { setSelectedOption(it) })
                         Text(text = it.name)
                     }
-                    Spacer(Modifier.preferredSize(padding))
+                    Spacer(Modifier.size(padding))
                 }
 
                 TextField(
@@ -95,7 +105,7 @@ class DataAtomicityActivity : AppCompatActivity() {
                     label = { Text(text = "increment times") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
                 )
-                Spacer(Modifier.preferredSize(padding))
+                Spacer(Modifier.size(padding))
                 Button(enabled = !running, onClick = {
                     scope.launch {
                         selectedOption.clear(KEY_NAME)
@@ -116,9 +126,9 @@ class DataAtomicityActivity : AppCompatActivity() {
                         setResultList(resultList + Result(selectedOption, d, r))
                     }
                 }, modifier = Modifier.fillMaxWidth()) { Text(text = "Start") }
-                Spacer(Modifier.preferredSize(padding))
+                Spacer(Modifier.size(padding))
                 if (result != null) Text(text = "Result is $result, took $duration.")
-                Spacer(Modifier.preferredSize(padding))
+                Spacer(Modifier.size(padding))
 
                 Text(
                     table {

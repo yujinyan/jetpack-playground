@@ -7,3 +7,5 @@ dependencyResolutionManagement {
 }
 rootProject.name = "Playground2"
 include ':app'
+include ':benchmark'
+include ':lib'
