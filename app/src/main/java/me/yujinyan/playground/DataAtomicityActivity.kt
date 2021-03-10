@@ -1,7 +1,6 @@
 package me.yujinyan.playground
 
 import android.content.Context
-import android.content.SharedPreferences
 import android.os.Bundle
 import androidx.activity.compose.setContent
 import androidx.appcompat.app.AppCompatActivity
@@ -21,31 +20,31 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import androidx.core.content.edit
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
-import androidx.datastore.preferences.core.edit
-import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.jakewharton.picnic.table
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import me.yujinyan.playground.atomicity.TestResult
+import me.yujinyan.playground.atomicity.TestTarget
+import me.yujinyan.playground.atomicity.runTest
 import kotlin.time.Duration
 import kotlin.time.ExperimentalTime
-import kotlin.time.measureTime
 
 @ExperimentalTime
-val Context.ds by preferencesDataStore(DataAtomicityActivity.FILE_NAME)
+val Context.ds: DataStore<Preferences> by preferencesDataStore(DataAtomicityActivity.FILE_NAME)
 
 @ExperimentalTime
 class DataAtomicityActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val sp = getSharedPreferences(FILE_NAME, Context.MODE_PRIVATE)
-        val options = listOf(TestTarget.SP(sp), TestTarget.DS(ds))
+        val options = listOf(
+            TestTarget.SP(sp),
+            TestTarget.DS(ds),
+            TestTarget.DSCachedValue(ds),
+            TestTarget.DSReadByDataFirst(ds),
+        )
 
         setContent {
             val padding = 16.dp
@@ -61,7 +60,7 @@ class DataAtomicityActivity : AppCompatActivity() {
             }
 
             val (resultList, setResultList) = remember {
-                mutableStateOf<List<Result>>(emptyList())
+                mutableStateOf<List<TestResult>>(emptyList())
             }
 
             val (duration, setDuration) = remember {
@@ -111,19 +110,11 @@ class DataAtomicityActivity : AppCompatActivity() {
                         selectedOption.clear(KEY_NAME)
                         setResult(null)
                         setRunning(true)
-                        val d = measureTime {
-                            coroutineScope {
-                                repeat(count) {
-                                    launch {
-                                        selectedOption.increment(KEY_NAME)
-                                    }
-                                }
-                            }
-                        }
+                        val testResult: TestResult = selectedOption.runTest(KEY_NAME, count)
                         setRunning(false)
-                        val r = selectedOption.result(KEY_NAME)
-                        setDuration(d); setResult(r)
-                        setResultList(resultList + Result(selectedOption, d, r))
+                        setDuration(testResult.duration)
+                        setResult(testResult.reading)
+                        setResultList(resultList + testResult)
                     }
                 }, modifier = Modifier.fillMaxWidth()) { Text(text = "Start") }
                 Spacer(Modifier.size(padding))
@@ -143,10 +134,12 @@ class DataAtomicityActivity : AppCompatActivity() {
                                 val target = when (it.target) {
                                     is TestTarget.DS -> "DS"
                                     is TestTarget.SP -> "SP"
+                                    is TestTarget.DSCachedValue -> "DS-Cached"
+                                    is TestTarget.DSReadByDataFirst -> "DS-data.first"
                                 }
                                 cell(target)
                                 cell(it.duration)
-                                cell(it.result)
+                                cell(it.reading)
                             }
                         }
                     }.toString(),
@@ -155,45 +148,6 @@ class DataAtomicityActivity : AppCompatActivity() {
             }
 
         }
-    }
-
-    data class Result(val target: TestTarget, val duration: Duration, val result: Int)
-
-    sealed class TestTarget {
-        class SP(private val sp: SharedPreferences) : TestTarget() {
-            override val name: String = "SharedPreferences"
-            override suspend fun increment(key: String) = withContext(Dispatchers.IO) {
-                sp.edit(commit = true) {
-                    putInt(key, sp.getInt(key, 0) + 1)
-                }
-            }
-
-            override suspend fun result(key: String): Int = sp.getInt(key, 0)
-            override suspend fun clear(key: String) {
-                sp.edit(commit = true) { clear() }
-            }
-        }
-
-        class DS(private val ds: DataStore<Preferences>) : TestTarget() {
-            override val name: String = "DataStore"
-            override suspend fun increment(key: String) {
-                ds.edit {
-                    it[intPreferencesKey(key)] = (it[intPreferencesKey(key)] ?: 0) + 1
-                }
-            }
-
-            override suspend fun result(key: String): Int =
-                ds.data.first()[intPreferencesKey(key)]!!
-
-            override suspend fun clear(key: String) {
-                ds.edit { it.clear() }
-            }
-        }
-
-        abstract val name: String
-        abstract suspend fun increment(key: String)
-        abstract suspend fun result(key: String): Int
-        abstract suspend fun clear(key: String)
     }
 
     companion object {
