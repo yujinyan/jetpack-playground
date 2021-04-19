@@ -10,6 +10,9 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.Playground2">
         <activity
+            android:name=".AnimationDemoActivity"
+            android:exported="true" />
+        <activity
             android:name=".DataAtomicityActivity"
             android:exported="true" />
         <activity
